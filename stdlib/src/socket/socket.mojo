@@ -100,6 +100,7 @@ struct _c_sockaddr_in(Stringable):
         res += "sin_addr: " + str(self.sin_addr.s_addr) + ",\n"
         return res + "}"
 
+
 @value
 struct Socket:
     """An initialized socket."""
@@ -160,7 +161,29 @@ struct Socket:
             _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
             raise error_str
 
-    #fn read(inout self):
+    @always_inline
+    fn read[
+        type: DType
+    ](self, ptr: DTypePointer[type], size: Int64 = -1) raises -> Int64:
+        var size_copy = size * sizeof[type]()
+
+        var err = external_call["recv", Int32](
+            self._sock_fd,
+            ptr,
+            size_copy,
+            0,
+        )
+
+        if err == -1:
+            raise "read(): -1 recv error"
+
+        return size_copy
+
+    @always_inline
+    fn read_bytes(inout self, size: Int) raises -> DTypePointer[DType.int8]:
+        var ptr = DTypePointer[DType.int8].alloc(size)
+        var bytes_read = self.read(ptr, size)
+        return ptr
 
     #fn write(inout self):
 
@@ -215,9 +238,7 @@ fn gethostname() raises -> String:
         _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
         raise error_str
 
-    print(str(hostname))
-
-    return ""
+    return hostname
 
 
 fn inet_pton(family: UInt8, ip_addr: String) raises -> UInt32:
@@ -244,16 +265,24 @@ fn main() raises:
     var tcp_socket = create_socket(AF_INET, SOCK_STREAM, 0)
     tcp_socket.connect("127.0.0.1", 22)
 
+    var ptr = DTypePointer[DType.uint8].alloc(12)
+    var bytes_read = tcp_socket.read(ptr, 12)
+    print("bytes read", bytes_read)
+
+    var bytes = tcp_socket.read_bytes(12)
+    var ascii_str = String(bytes, 12)
+    print(ascii_str)
+
+    tcp_socket.close()
+
     # Create IPv4 UDP socket
     var udp_socket = create_socket(AF_INET, SOCK_DGRAM, 0)
+    udp_socket.close()
 
     # Create IPv6 TCP socket
     var tcpv6_socket = create_socket(AF_INET6, SOCK_STREAM, 0)
+    tcpv6_socket.close()
 
     # Create IPv6 UDP socket
     var udpv6_socket = create_socket(AF_INET6, SOCK_DGRAM, 0)
-
-    tcp_socket.close()
-    udp_socket.close()
-    tcpv6_socket.close()
     udpv6_socket.close()
