@@ -34,6 +34,10 @@ alias in_addr_t = UInt32
 alias in_port_t = UInt16
 
 
+alias HOST_NAME_MAX = 255
+alias INET_ADDRSTRLEN = 16
+
+
 # struct sockaddr {
 #     __uint8_t       sa_len;         /* total length */
 #     sa_family_t     sa_family;      /* [XSI] address family */
@@ -108,14 +112,14 @@ struct Socket:
     var family: UInt8
     var type: Int32
     var protocol: Int32
-    var _sock_fd: UInt32
+    var _sock_fd: Int32
 
     fn __init__(inout self):
         """Default constructor."""
         self.family = 0
         self.type = 0
         self.protocol = 0
-        self._sock_fd = 0
+        self._sock_fd = -1
 
     fn __init__(inout self, family: UInt8, type: Int32, protocol: Int32) raises:
         """Construct the socket.
@@ -139,7 +143,7 @@ struct Socket:
             _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
             raise error_str
 
-        self._sock_fd = fd.cast[DType.uint32]()
+        self._sock_fd = fd.cast[DType.int32]()
 
     fn connect(inout self, hostname: String, port: UInt16) raises:
         var sockaddr_in = _c_sockaddr_in()
@@ -153,7 +157,7 @@ struct Socket:
         var err = external_call["connect", Int32](
             self._sock_fd,
             UnsafePointer.address_of(sockaddr_in),
-            sockaddr_in.sin_len
+            sockaddr_in.sin_len,
         )
 
         if err == -1:
@@ -161,10 +165,36 @@ struct Socket:
             _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
             raise error_str
 
+    fn fileno(inout self) -> Int32:
+        return self._sock_fd
+
+    # int getpeername(int socket, struct sockaddr *restrict address, socklen_t *restrict address_len);
+    fn getpeername(inout self) raises -> Tuple[String, UInt16]:
+        var sockaddr_in = _c_sockaddr_in()
+        sockaddr_in.sin_family = self.family
+        sockaddr_in.sin_len = sizeof[_c_sockaddr_in]()
+
+        var err = external_call["getpeername", Int32](
+            self._sock_fd,
+            UnsafePointer.address_of(sockaddr_in),
+            UnsafePointer.address_of(sockaddr_in.sin_len),
+        )
+
+        if err == -1:
+            var error_str = String("Socket.getpeername()")
+            _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+            raise error_str
+
+        var address = inet_ntop(AF_INET, sockaddr_in.sin_addr)
+
+        return (address, sockaddr_in.sin_port)
+
+    # int getsockname(int socket, struct sockaddr *restrict address, socklen_t *restrict address_len);
+
     @always_inline
     fn read[
         type: DType
-    ](self, ptr: DTypePointer[type], size: Int64 = -1) raises -> Int64:
+    ](inout self, ptr: DTypePointer[type], size: Int64 = -1) raises -> Int64:
         var size_copy = size * sizeof[type]()
 
         var err = external_call["recv", Int32](
@@ -199,7 +229,7 @@ struct Socket:
             _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
             raise error_str
 
-        self._sock_fd = 0
+        self._sock_fd = -1
 
 
 fn create_socket(family: UInt8 = AF_INET, type: Int32 = SOCK_STREAM, protocol: Int32 = 0) raises -> Socket:
@@ -222,7 +252,6 @@ fn htons(port: UInt16) -> UInt16:
 
 # int gethostname(char *name, size_t namelen);
 fn gethostname() raises -> String:
-    alias HOST_NAME_MAX = 255
     var buf = List[Int8]()
     for _ in range(HOST_NAME_MAX):
         buf.append(0)
@@ -240,7 +269,7 @@ fn gethostname() raises -> String:
 
     return hostname
 
-
+# int inet_pton(int af, const char * restrict src, void * restrict dst);
 fn inet_pton(family: UInt8, ip_addr: String) raises -> UInt32:
     var num: UInt32 = 0
 
@@ -258,12 +287,45 @@ fn inet_pton(family: UInt8, ip_addr: String) raises -> UInt32:
     return num
 
 
+# const char * inet_ntop(int af, const void * restrict src, char * restrict dst, socklen_t size);
+fn inet_ntop(family: UInt8, addr: _in_addr) raises -> String:
+    var ptr = DTypePointer[DType.int8].alloc(INET_ADDRSTRLEN)
+
+    # It returns NULL if a system error occurs
+    var err = external_call["inet_ntop", Int32](
+        family,
+        UnsafePointer.address_of(addr),
+        ptr,
+        INET_ADDRSTRLEN,
+    )
+
+    if not err:
+        var error_str = String("inet_ntop()")
+        _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+        raise error_str
+
+    return String(ptr, INET_ADDRSTRLEN)
+
+
 fn main() raises:
     print(gethostname())
+
+    var packed_ip = inet_pton(AF_INET, "127.0.0.1")
+    var in_addr = _in_addr()
+    in_addr.s_addr = packed_ip
+    var address = inet_ntop(AF_INET, in_addr)
+    print("address = ", address)
 
     # Create IPv4 TCP socket
     var tcp_socket = create_socket(AF_INET, SOCK_STREAM, 0)
     tcp_socket.connect("127.0.0.1", 22)
+
+    print("socket fileno = ", tcp_socket.fileno())
+
+    var peer = tcp_socket.getpeername()
+
+    print("getpeername = ", peer[0])
+    print("getpeername = ", peer[1])
 
     var ptr = DTypePointer[DType.uint8].alloc(12)
     var bytes_read = tcp_socket.read(ptr, 12)
@@ -271,7 +333,7 @@ fn main() raises:
 
     var bytes = tcp_socket.read_bytes(12)
     var ascii_str = String(bytes, 12)
-    print(ascii_str)
+    print("ascii_str = ", ascii_str)
 
     tcp_socket.close()
 
