@@ -140,7 +140,7 @@ struct Socket:
 
         if fd == -1:
             var error_str = String("Socket.__init__()")
-            _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+            _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
             raise error_str
 
         self._sock_fd = fd.cast[DType.int32]()
@@ -162,7 +162,7 @@ struct Socket:
 
         if err == -1:
             var error_str = String("Socket.connect()")
-            _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+            _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
             raise error_str
 
     fn fileno(inout self) -> Int32:
@@ -182,7 +182,7 @@ struct Socket:
 
         if err == -1:
             var error_str = String("Socket.getpeername()")
-            _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+            _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
             raise error_str
 
         var address = inet_ntop(AF_INET, sockaddr_in.sin_addr)
@@ -226,7 +226,7 @@ struct Socket:
 
         if err == -1:
             var error_str = String("Socket.close()")
-            _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+            _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
             raise error_str
 
         self._sock_fd = -1
@@ -264,7 +264,7 @@ fn gethostname() raises -> String:
 
     if err == -1:
         var error_str = String("gethostname()")
-        _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+        _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
         raise error_str
 
     return hostname
@@ -275,13 +275,13 @@ fn inet_pton(family: UInt8, ip_addr: String) raises -> UInt32:
 
     var err = external_call["inet_pton", Int32](
         family,
-        ip_addr._as_ptr(),
+        ip_addr.unsafe_ptr(),
         UnsafePointer.address_of(num),
     )
 
     if err < 1:
         var error_str = String("inet_pton()")
-        _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+        _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
         raise error_str
 
     return num
@@ -301,7 +301,7 @@ fn inet_ntop(family: UInt8, addr: _in_addr) raises -> String:
 
     if not err:
         var error_str = String("inet_ntop()")
-        _ = external_call["perror", Pointer[NoneType]](error_str._as_ptr())
+        _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
         raise error_str
 
     return String(ptr, INET_ADDRSTRLEN)
